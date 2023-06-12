@@ -1,6 +1,6 @@
 [package]
 name = "trivialdb"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Jelmer Vernooĳ <jelmer@samba.org>"]
 repository = "https://github.com/jelmer/tdb-rs.git"
