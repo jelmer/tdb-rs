@@ -8,7 +8,7 @@ See the [TDB homepage](https://tdb.samba.org/) for more details.
 ## Example
 
 ```rust
-use tdb::{Tdb,Flags};
+use trivialdb::{Tdb,Flags};
 
 let tdb = Tdb::memory(None, Flags::empty());
 

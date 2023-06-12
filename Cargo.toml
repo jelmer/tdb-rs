@@ -6,6 +6,7 @@ authors = ["Jelmer Vernooĳ <jelmer@samba.org>"]
 repository = "https://github.com/jelmer/tdb-rs.git"
 homepage = "https://github.com/jelmer/tdb-rs"
 license = "LGPL-3.0-or-later"
+description = "Rust bindings for the TDB database library"
 
 [dependencies]
 libc = "0.2"
