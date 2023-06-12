@@ -201,6 +201,12 @@ impl Tdb {
         }
     }
 
+    /// Create a database in memory
+    ///
+    /// # Arguments
+    ///
+    /// * `hash_size` - The hash size is advisory, leave None for a default.
+    /// * `tdb_flags` The flags to use to open the db:
     pub fn memory(hash_size: Option<u32>, tdb_flags: u32) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
@@ -228,6 +234,15 @@ impl Tdb {
         }
     }
 
+    /// Set the maximum number of dead records per hash chain.
+    pub fn set_max_dead(&mut self, max_dead: u32) {
+        unsafe { tdb_set_max_dead(self.0, max_dead as i32) };
+    }
+
+    /// Reopen the database
+    ///
+    /// This can be used to reopen a database after a fork, to ensure that we have an independent
+    /// seek pointer and to re-establish any locks.
     pub fn reopen(&mut self) -> Result<(), Error> {
         let ret = unsafe { tdb_reopen(self.0) };
         if ret == -1 {
@@ -285,6 +300,7 @@ impl Tdb {
         TdbIter(self, TdbKeys(self, None))
     }
 
+    /// Check if a particular key exists
     pub fn exists(&self, key: &[u8]) -> bool {
         unsafe { tdb_exists(self.0, key.into()) }
     }
@@ -563,7 +579,7 @@ mod test {
 
     #[test]
     fn test_fetch_nonexistent() {
-        let mut tdb = testtdb();
+        let tdb = testtdb();
         assert_eq!(tdb.fetch(b"foo").unwrap(), None);
     }
 
