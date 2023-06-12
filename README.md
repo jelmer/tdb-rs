@@ -1,5 +1,4 @@
-Rust bindings for TDB
-#####################
+# Rust bindings for TDB
 
 This rust crate provides idiomatic Rust bindings for the Trivial Database (TDB)
 library.
