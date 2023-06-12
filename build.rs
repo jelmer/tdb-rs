@@ -18,6 +18,12 @@ fn main() {
         .header_contents("tdb.h", "typedef int mode_t;")
         .header(tdb_header.to_str().unwrap())
         .blocklist_type("TDB_DATA")
+        .blocklist_function("tdb_store")
+        .blocklist_function("tdb_fetch")
+        .blocklist_function("tdb_append")
+        .blocklist_function("tdb_delete")
+        .blocklist_function("tdb_exists")
+        .blocklist_function("tdb_nextkey")
         .clang_args(
             pc_tdb
                 .include_paths

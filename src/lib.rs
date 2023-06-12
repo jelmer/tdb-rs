@@ -75,29 +75,87 @@ impl From<i32> for Error {
 
 #[repr(C)]
 pub struct TDB_DATA {
+    pub dptr: *mut std::os::raw::c_uchar,
+    pub dsize: usize,
+}
+
+impl From<Vec<u8>> for TDB_DATA {
+    fn from(data: Vec<u8>) -> Self {
+        let ptr = data.as_ptr() as *mut std::os::raw::c_uchar;
+        let len = data.len();
+        std::mem::forget(data);
+        TDB_DATA {
+            dptr: ptr,
+            dsize: len,
+        }
+    }
+}
+
+impl Drop for TDB_DATA {
+    fn drop(&mut self) {
+        unsafe {
+            libc::free(self.dptr as *mut libc::c_void);
+        }
+    }
+}
+
+impl Clone for TDB_DATA {
+    fn clone(&self) -> Self {
+        unsafe {
+            let ptr = libc::malloc(self.dsize) as *mut std::os::raw::c_uchar;
+            std::ptr::copy_nonoverlapping(self.dptr, ptr, self.dsize);
+            TDB_DATA {
+                dptr: ptr,
+                dsize: self.dsize,
+            }
+        }
+    }
+}
+
+impl From<TDB_DATA> for Vec<u8> {
+    fn from(mut data: TDB_DATA) -> Self {
+        let ret = unsafe { Vec::from_raw_parts(data.dptr, data.dsize, data.dsize) };
+        data.dptr = std::ptr::null_mut();
+        ret
+    }
+}
+
+#[repr(C)]
+pub struct CONST_TDB_DATA {
     pub dptr: *const std::os::raw::c_uchar,
     pub dsize: usize,
 }
 
-impl From<&[u8]> for TDB_DATA {
+impl From<&[u8]> for CONST_TDB_DATA {
     fn from(data: &[u8]) -> Self {
-        TDB_DATA {
+        CONST_TDB_DATA {
             dptr: data.as_ptr(),
             dsize: data.len(),
         }
     }
 }
 
-impl From<TDB_DATA> for &[u8] {
-    fn from(data: TDB_DATA) -> Self {
-        unsafe { std::slice::from_raw_parts(data.dptr, data.dsize) }
-    }
-}
+extern "C" {
+    pub fn tdb_fetch(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
 
-impl From<TDB_DATA> for Vec<u8> {
-    fn from(data: TDB_DATA) -> Self {
-        unsafe { std::slice::from_raw_parts(data.dptr, data.dsize) }.to_vec()
-    }
+    pub fn tdb_store(
+        tdb: *mut tdb_context,
+        key: CONST_TDB_DATA,
+        dbuf: CONST_TDB_DATA,
+        flag: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+
+    pub fn tdb_append(
+        tdb: *mut tdb_context,
+        key: CONST_TDB_DATA,
+        new_dbuf: CONST_TDB_DATA,
+    ) -> ::std::os::raw::c_int;
+
+    pub fn tdb_exists(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> bool;
+
+    pub fn tdb_delete(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> ::std::os::raw::c_int;
+
+    pub fn tdb_nextkey(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
 }
 
 impl Tdb {
@@ -179,7 +237,7 @@ impl Tdb {
         }
     }
 
-    pub fn fetch(&self, key: &[u8]) -> Result<Option<&[u8]>, Error> {
+    pub fn fetch(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let ret = unsafe { tdb_fetch(self.0, key.into()) };
         if ret.dptr.is_null() {
             match self.error() {
@@ -219,16 +277,16 @@ impl Tdb {
         }
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &[u8]> + '_ {
+    pub fn keys(&self) -> impl Iterator<Item = Vec<u8>> + '_ {
         TdbKeys(self, None)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&[u8], &[u8])> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + '_ {
         TdbIter(self, TdbKeys(self, None))
     }
 
     pub fn exists(&self, key: &[u8]) -> bool {
-        unsafe { tdb_exists(self.0, key.into()) == 1 }
+        unsafe { tdb_exists(self.0, key.into()) }
     }
 
     pub fn lockall(&self) -> Result<(), Error> {
@@ -400,9 +458,9 @@ impl AsRawFd for Tdb {
 struct TdbKeys<'a>(&'a Tdb, Option<Vec<u8>>);
 
 impl<'a> Iterator for TdbKeys<'a> {
-    type Item = &'a [u8];
+    type Item = Vec<u8>;
 
-    fn next(&mut self) -> Option<&'a [u8]> {
+    fn next(&mut self) -> Option<Vec<u8>> {
         let key = if let Some(prev_key) = self.1.take() {
             unsafe { tdb_nextkey(self.0 .0, prev_key.as_slice().into()) }
         } else {
@@ -414,8 +472,8 @@ impl<'a> Iterator for TdbKeys<'a> {
                 Err(e) => panic!("error: {}", e),
             }
         } else {
-            let ret: &[u8] = key.into();
-            self.1 = Some(ret.to_vec());
+            let ret: Vec<u8> = key.into();
+            self.1 = Some(ret.clone());
             Some(ret)
         }
     }
@@ -424,11 +482,11 @@ impl<'a> Iterator for TdbKeys<'a> {
 struct TdbIter<'a>(&'a Tdb, TdbKeys<'a>);
 
 impl<'a> Iterator for TdbIter<'a> {
-    type Item = (&'a [u8], &'a [u8]);
+    type Item = (Vec<u8>, Vec<u8>);
 
-    fn next(&mut self) -> Option<(&'a [u8], &'a [u8])> {
+    fn next(&mut self) -> Option<(Vec<u8>, Vec<u8>)> {
         let key = self.1.next()?;
-        let val = self.0.fetch(key).unwrap().unwrap();
+        let val = self.0.fetch(key.as_slice()).unwrap().unwrap();
         Some((key, val))
     }
 }
@@ -439,7 +497,7 @@ impl Drop for Tdb {
     }
 }
 
-pub fn jenkins_hash(key: &[u8]) -> u32 {
+pub fn jenkins_hash(key: Vec<u8>) -> u32 {
     let mut key = key.into();
     unsafe { tdb_jenkins_hash(&mut key) }
 }
@@ -469,8 +527,8 @@ mod test {
         tdb.store(b"blah", b"bloe", 0).unwrap();
 
         let mut iter = tdb.iter();
-        assert_eq!(iter.next().unwrap(), (&b"foo"[..], &b"bar"[..]));
-        assert_eq!(iter.next().unwrap(), (&b"blah"[..], &b"bloe"[..]));
+        assert_eq!(iter.next().unwrap(), (b"foo".to_vec(), b"bar".to_vec()));
+        assert_eq!(iter.next().unwrap(), (b"blah".to_vec(), b"bloe".to_vec()));
         assert_eq!(iter.next(), None);
     }
 
