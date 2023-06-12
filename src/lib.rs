@@ -4,6 +4,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/tdb_sys.rs"));
 
+use bitflags::bitflags;
 use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -24,6 +25,59 @@ pub enum Error {
     Invalid,
     Nesting,
     Unknown(u32),
+}
+
+bitflags! {
+    pub struct Flags: u32 {
+        /// CLEAR_IF_FIRST - Clear database if we are the only one with it open
+        const CLEAR_IF_FIRST = TDB_CLEAR_IF_FIRST;
+        /// NOMMAP - Don't use mmap
+        const NOMMAP = TDB_NOMMAP;
+        /// NOLOCK - Don't do any locking
+        const NOLOCK = TDB_NOLOCK;
+        /// NOSYNC - Don't synchronise transactions to disk
+        const NOSYNC = TDB_SEQNUM;
+        /// SEQNUM - Maintain a sequence number
+        const SEQNUM = TDB_SEQNUM;
+        /// VOLATILE - activate the per-hashchain freelist, default 5.
+        const VOLATILE = TDB_VOLATILE;
+        /// ALLOW_NESTING - Allow transactions to nest.
+        const ALLOW_NESTING = TDB_ALLOW_NESTING;
+        /// DISALLOW_NESTING - Disallow transactions to nest.
+        const DISALLOW_NESTING = TDB_DISALLOW_NESTING;
+        /// INCOMPATIBLE_HASH - Better hashing: can't be opened by tdb < 1.2.6.
+        const INCOMPATIBLE_HASH = TDB_INCOMPATIBLE_HASH;
+        /// MUTEX_LOCKING - Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
+        ///   Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
+        const MUTEX_LOCKING = TDB_MUTEX_LOCKING;
+    }
+}
+
+pub enum StoreFlags {
+    /// Don't overwrite an existing entry.
+    INSERT,
+
+    /// Don't create a new entry.
+    REPLACE,
+}
+
+impl From<u32> for StoreFlags {
+    fn from(f: u32) -> Self {
+        match f {
+            TDB_INSERT => StoreFlags::INSERT,
+            TDB_REPLACE => StoreFlags::REPLACE,
+            _ => panic!("Invalid store flag"),
+        }
+    }
+}
+
+impl From<StoreFlags> for u32 {
+    fn from(f: StoreFlags) -> Self {
+        match f {
+            StoreFlags::INSERT => TDB_INSERT,
+            StoreFlags::REPLACE => TDB_REPLACE,
+        }
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -166,22 +220,11 @@ impl Tdb {
     /// * `name` - The name of the db to open.
     /// * `hash_size` - The hash size is advisory, leave None for a default.
     /// * `tdb_flags` The flags to use to open the db:
-    ///     TDB_CLEAR_IF_FIRST - Clear database if we are the only one with it open
-    ///     TDB_NOLOCK - Don't do any locking
-    ///     TDB_NOMMAP - Don't use mmap
-    ///     TDB_NOSYNC - Don't synchronise transactions to disk
-    ///     TDB_SEQNUM - Maintain a sequence number
-    ///     TDB_VOLATILE - activate the per-hashchain freelist, default 5.
-    ///     TDB_ALLOW_NESTING - Allow transactions to nest.
-    ///     TDB_DISALLOW_NESTING - Disallow transactions to nest.
-    ///     TDB_INCOMPATIBLE_HASH - Better hashing: can't be opened by tdb < 1.2.6.
-    ///     TDB_MUTEX_LOCKING - Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
-    ///         Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
     /// * `open_flags` Flags for the open(2) function.
     pub fn open(
         name: &std::path::Path,
         hash_size: Option<u32>,
-        tdb_flags: u32,
+        tdb_flags: Flags,
         open_flags: i32,
     ) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
@@ -189,7 +232,7 @@ impl Tdb {
             tdb_open(
                 name.as_os_str().as_bytes().as_ptr() as *const i8,
                 hash_size as i32,
-                tdb_flags as i32,
+                tdb_flags.bits() as i32,
                 open_flags,
                 0,
             )
@@ -207,13 +250,13 @@ impl Tdb {
     ///
     /// * `hash_size` - The hash size is advisory, leave None for a default.
     /// * `tdb_flags` The flags to use to open the db:
-    pub fn memory(hash_size: Option<u32>, tdb_flags: u32) -> Option<Tdb> {
+    pub fn memory(hash_size: Option<u32>, tdb_flags: Flags) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
             tdb_open(
                 b":memory:\0".as_ptr() as *const i8,
                 hash_size as i32,
-                tdb_flags as i32,
+                tdb_flags.bits() as i32,
                 0,
                 0,
             )
@@ -265,8 +308,21 @@ impl Tdb {
         }
     }
 
-    pub fn store(&mut self, key: &[u8], val: &[u8], flag: u32) -> Result<(), Error> {
-        let ret = unsafe { tdb_store(self.0, key.into(), val.into(), flag as i32) };
+    /// Store a key/value pair in the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to store.
+    /// * `val` - The value to store.
+    /// * `flags` - The flags to use when storing the value.
+    pub fn store(
+        &mut self,
+        key: &[u8],
+        val: &[u8],
+        flags: Option<StoreFlags>,
+    ) -> Result<(), Error> {
+        let flags = flags.map_or(0, |f| f.into());
+        let ret = unsafe { tdb_store(self.0, key.into(), val.into(), flags as i32) };
         if ret == -1 {
             self.error()
         } else {
@@ -523,13 +579,19 @@ mod test {
     fn testtdb() -> super::Tdb {
         let tmppath = tempfile::tempdir().unwrap();
         let path = tmppath.path().join("test.tdb");
-        super::Tdb::open(path.as_path(), None, 0, libc::O_RDWR | libc::O_CREAT).unwrap()
+        super::Tdb::open(
+            path.as_path(),
+            None,
+            super::Flags::empty(),
+            libc::O_RDWR | libc::O_CREAT,
+        )
+        .unwrap()
     }
 
     #[test]
     fn test_simple() {
         let mut tdb = testtdb();
-        tdb.store(b"foo", b"bar", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
         tdb.delete(b"foo").unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap(), None);
@@ -539,8 +601,8 @@ mod test {
     fn test_iter() {
         let mut tdb = testtdb();
 
-        tdb.store(b"foo", b"bar", 0).unwrap();
-        tdb.store(b"blah", b"bloe", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
+        tdb.store(b"blah", b"bloe", None).unwrap();
 
         let mut iter = tdb.iter();
         assert_eq!(iter.next().unwrap(), (b"foo".to_vec(), b"bar".to_vec()));
@@ -552,8 +614,8 @@ mod test {
     fn test_keys() {
         let mut tdb = testtdb();
 
-        tdb.store(b"foo", b"bar", 0).unwrap();
-        tdb.store(b"blah", b"bloe", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
+        tdb.store(b"blah", b"bloe", None).unwrap();
 
         let mut keys = tdb.keys();
         assert_eq!(keys.next().unwrap(), b"foo");
@@ -566,12 +628,12 @@ mod test {
         let mut tdb = testtdb();
 
         tdb.transaction_start().unwrap();
-        tdb.store(b"foo", b"bar", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
         tdb.transaction_cancel().unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap(), None);
 
         tdb.transaction_start().unwrap();
-        tdb.store(b"foo", b"bar", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
         tdb.transaction_prepare_commit().unwrap();
         tdb.transaction_commit().unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
@@ -586,8 +648,8 @@ mod test {
     #[test]
     fn test_store_overwrite() {
         let mut tdb = testtdb();
-        tdb.store(b"foo", b"bar", 0).unwrap();
-        tdb.store(b"foo", b"blah", 0).unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
+        tdb.store(b"foo", b"blah", None).unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"blah");
     }
 }

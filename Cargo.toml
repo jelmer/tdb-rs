@@ -9,6 +9,7 @@ license = "LGPL-3.0-or-later"
 
 [dependencies]
 libc = "0.2"
+bitflags = "1.2"
 
 [build-dependencies]
 pkg-config = "0.3"
