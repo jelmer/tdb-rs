@@ -1,5 +1,5 @@
 [package]
-name = "tdb-rs"
+name = "trivialdb"
 version = "0.1.0"
 edition = "2021"
 authors = ["Jelmer Vernooĳ <jelmer@samba.org>"]
