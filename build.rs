@@ -2,6 +2,8 @@ extern crate bindgen;
 extern crate pkg_config;
 
 fn main() {
+    system_deps::Config::new().probe().unwrap();
+
     // Use pkg-config to get the necessary flags for the `tdb` library
     let pc_tdb = pkg_config::Config::new()
         .probe("tdb")
