@@ -1,15 +1,27 @@
+//! Rust bindings for TDB (Trivial Database)
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-include!(concat!(env!("OUT_DIR"), "/tdb_sys.rs"));
+mod generated {
+    #![allow(dead_code)]
+    include!(concat!(env!("OUT_DIR"), "/tdb_sys.rs"));
+
+    #[repr(C)]
+    pub struct TDB_DATA {
+        pub dptr: *mut std::os::raw::c_uchar,
+        pub dsize: usize,
+    }
+}
+
+use generated::TDB_DATA;
 
 use bitflags::bitflags;
 use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 
-pub struct Tdb(*mut tdb_context);
+pub struct Tdb(*mut generated::tdb_context);
 
 #[derive(Debug)]
 pub enum Error {
@@ -30,54 +42,39 @@ pub enum Error {
 bitflags! {
     pub struct Flags: u32 {
         /// CLEAR_IF_FIRST - Clear database if we are the only one with it open
-        const CLEAR_IF_FIRST = TDB_CLEAR_IF_FIRST;
+        const CLEAR_IF_FIRST = generated::TDB_CLEAR_IF_FIRST;
         /// NOMMAP - Don't use mmap
-        const NOMMAP = TDB_NOMMAP;
+        const NOMMAP = generated::TDB_NOMMAP;
         /// NOLOCK - Don't do any locking
-        const NOLOCK = TDB_NOLOCK;
+        const NOLOCK = generated::TDB_NOLOCK;
         /// NOSYNC - Don't synchronise transactions to disk
-        const NOSYNC = TDB_SEQNUM;
+        const NOSYNC = generated::TDB_SEQNUM;
         /// SEQNUM - Maintain a sequence number
-        const SEQNUM = TDB_SEQNUM;
+        const SEQNUM = generated::TDB_SEQNUM;
         /// VOLATILE - activate the per-hashchain freelist, default 5.
-        const VOLATILE = TDB_VOLATILE;
+        const VOLATILE = generated::TDB_VOLATILE;
         /// ALLOW_NESTING - Allow transactions to nest.
-        const ALLOW_NESTING = TDB_ALLOW_NESTING;
+        const ALLOW_NESTING = generated::TDB_ALLOW_NESTING;
         /// DISALLOW_NESTING - Disallow transactions to nest.
-        const DISALLOW_NESTING = TDB_DISALLOW_NESTING;
+        const DISALLOW_NESTING = generated::TDB_DISALLOW_NESTING;
         /// INCOMPATIBLE_HASH - Better hashing: can't be opened by tdb < 1.2.6.
-        const INCOMPATIBLE_HASH = TDB_INCOMPATIBLE_HASH;
+        const INCOMPATIBLE_HASH = generated::TDB_INCOMPATIBLE_HASH;
         /// MUTEX_LOCKING - Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
         ///   Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
-        const MUTEX_LOCKING = TDB_MUTEX_LOCKING;
+        const MUTEX_LOCKING = generated::TDB_MUTEX_LOCKING;
     }
 }
 
+#[repr(C)]
 pub enum StoreFlags {
     /// Don't overwrite an existing entry.
-    INSERT,
+    INSERT = generated::TDB_INSERT as isize,
 
     /// Don't create a new entry.
-    REPLACE,
-}
+    REPLACE = generated::TDB_REPLACE as isize,
 
-impl From<u32> for StoreFlags {
-    fn from(f: u32) -> Self {
-        match f {
-            TDB_INSERT => StoreFlags::INSERT,
-            TDB_REPLACE => StoreFlags::REPLACE,
-            _ => panic!("Invalid store flag"),
-        }
-    }
-}
-
-impl From<StoreFlags> for u32 {
-    fn from(f: StoreFlags) -> Self {
-        match f {
-            StoreFlags::INSERT => TDB_INSERT,
-            StoreFlags::REPLACE => TDB_REPLACE,
-        }
-    }
+    /// Don't create an existing entry.
+    MODIFY = generated::TDB_MODIFY as isize,
 }
 
 impl std::fmt::Display for Error {
@@ -105,17 +102,17 @@ impl std::error::Error for Error {}
 impl From<u32> for Error {
     fn from(e: u32) -> Self {
         match e {
-            TDB_ERROR_TDB_ERR_CORRUPT => Error::Corrupt,
-            TDB_ERROR_TDB_ERR_IO => Error::IO,
-            TDB_ERROR_TDB_ERR_LOCK => Error::Lock,
-            TDB_ERROR_TDB_ERR_OOM => Error::OOM,
-            TDB_ERROR_TDB_ERR_EXISTS => Error::Exists,
-            TDB_ERROR_TDB_ERR_NOLOCK => Error::NoLock,
-            TDB_ERROR_TDB_ERR_LOCK_TIMEOUT => Error::LockTimeout,
-            TDB_ERROR_TDB_ERR_RDONLY => Error::ReadOnly,
-            TDB_ERROR_TDB_ERR_NOEXIST => Error::NoExist,
-            TDB_ERROR_TDB_ERR_EINVAL => Error::Invalid,
-            TDB_ERROR_TDB_ERR_NESTING => Error::Nesting,
+            generated::TDB_ERROR_TDB_ERR_CORRUPT => Error::Corrupt,
+            generated::TDB_ERROR_TDB_ERR_IO => Error::IO,
+            generated::TDB_ERROR_TDB_ERR_LOCK => Error::Lock,
+            generated::TDB_ERROR_TDB_ERR_OOM => Error::OOM,
+            generated::TDB_ERROR_TDB_ERR_EXISTS => Error::Exists,
+            generated::TDB_ERROR_TDB_ERR_NOLOCK => Error::NoLock,
+            generated::TDB_ERROR_TDB_ERR_LOCK_TIMEOUT => Error::LockTimeout,
+            generated::TDB_ERROR_TDB_ERR_RDONLY => Error::ReadOnly,
+            generated::TDB_ERROR_TDB_ERR_NOEXIST => Error::NoExist,
+            generated::TDB_ERROR_TDB_ERR_EINVAL => Error::Invalid,
+            generated::TDB_ERROR_TDB_ERR_NESTING => Error::Nesting,
             _ => Error::Unknown(e),
         }
     }
@@ -125,12 +122,6 @@ impl From<i32> for Error {
     fn from(e: i32) -> Self {
         From::<u32>::from(e as u32)
     }
-}
-
-#[repr(C)]
-pub struct TDB_DATA {
-    pub dptr: *mut std::os::raw::c_uchar,
-    pub dsize: usize,
 }
 
 impl From<Vec<u8>> for TDB_DATA {
@@ -190,26 +181,26 @@ impl From<&[u8]> for CONST_TDB_DATA {
 }
 
 extern "C" {
-    pub fn tdb_fetch(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
+    fn tdb_fetch(tdb: *mut generated::tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
 
-    pub fn tdb_store(
-        tdb: *mut tdb_context,
+    fn tdb_store(
+        tdb: *mut generated::tdb_context,
         key: CONST_TDB_DATA,
         dbuf: CONST_TDB_DATA,
         flag: ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
 
-    pub fn tdb_append(
-        tdb: *mut tdb_context,
+    fn tdb_append(
+        tdb: *mut generated::tdb_context,
         key: CONST_TDB_DATA,
         new_dbuf: CONST_TDB_DATA,
     ) -> ::std::os::raw::c_int;
 
-    pub fn tdb_exists(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> bool;
+    fn tdb_exists(tdb: *mut generated::tdb_context, key: CONST_TDB_DATA) -> bool;
 
-    pub fn tdb_delete(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> ::std::os::raw::c_int;
+    fn tdb_delete(tdb: *mut generated::tdb_context, key: CONST_TDB_DATA) -> ::std::os::raw::c_int;
 
-    pub fn tdb_nextkey(tdb: *mut tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
+    fn tdb_nextkey(tdb: *mut generated::tdb_context, key: CONST_TDB_DATA) -> TDB_DATA;
 }
 
 impl Tdb {
@@ -229,7 +220,7 @@ impl Tdb {
     ) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
-            tdb_open(
+            generated::tdb_open(
                 name.as_os_str().as_bytes().as_ptr() as *const i8,
                 hash_size as i32,
                 tdb_flags.bits() as i32,
@@ -253,7 +244,7 @@ impl Tdb {
     pub fn memory(hash_size: Option<u32>, tdb_flags: Flags) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
-            tdb_open(
+            generated::tdb_open(
                 b":memory:\0".as_ptr() as *const i8,
                 hash_size as i32,
                 tdb_flags.bits() as i32,
@@ -268,8 +259,9 @@ impl Tdb {
         }
     }
 
+    /// Return the latest error that occurred
     fn error(&self) -> Result<(), Error> {
-        let err = unsafe { tdb_error(self.0) };
+        let err = unsafe { generated::tdb_error(self.0) };
         if err == 0 {
             Ok(())
         } else {
@@ -279,7 +271,7 @@ impl Tdb {
 
     /// Set the maximum number of dead records per hash chain.
     pub fn set_max_dead(&mut self, max_dead: u32) {
-        unsafe { tdb_set_max_dead(self.0, max_dead as i32) };
+        unsafe { generated::tdb_set_max_dead(self.0, max_dead as i32) };
     }
 
     /// Reopen the database
@@ -287,7 +279,7 @@ impl Tdb {
     /// This can be used to reopen a database after a fork, to ensure that we have an independent
     /// seek pointer and to re-establish any locks.
     pub fn reopen(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_reopen(self.0) };
+        let ret = unsafe { generated::tdb_reopen(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -295,6 +287,16 @@ impl Tdb {
         }
     }
 
+    /// Fetch a value from the database.:w
+    ///
+    /// # Arguments
+    /// * `key` - The key to fetch.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(value))` - The value associated with the key.
+    /// * `Ok(None)` - The key was not found.
+    /// * `Err(e)` - An error occurred.
     pub fn fetch(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let ret = unsafe { tdb_fetch(self.0, key.into()) };
         if ret.dptr.is_null() {
@@ -321,8 +323,8 @@ impl Tdb {
         val: &[u8],
         flags: Option<StoreFlags>,
     ) -> Result<(), Error> {
-        let flags = flags.map_or(0, |f| f.into());
-        let ret = unsafe { tdb_store(self.0, key.into(), val.into(), flags as i32) };
+        let flags = flags.map_or(0, |f| f as i32);
+        let ret = unsafe { tdb_store(self.0, key.into(), val.into(), flags) };
         if ret == -1 {
             self.error()
         } else {
@@ -330,6 +332,11 @@ impl Tdb {
         }
     }
 
+    /// Delete a key from the database.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to delete
     pub fn delete(&mut self, key: &[u8]) -> Result<(), Error> {
         let ret = unsafe { tdb_delete(self.0, key.into()) };
         if ret == -1 {
@@ -339,6 +346,11 @@ impl Tdb {
         }
     }
 
+    /// Append a value to an existing key.
+    ///
+    /// # Arguments
+    /// * `key` - The key to append to.
+    /// * `val` - The value to append.
     pub fn append(&mut self, key: &[u8], val: &[u8]) -> Result<(), Error> {
         let ret = unsafe { tdb_append(self.0, key.into(), val.into()) };
         if ret == -1 {
@@ -348,10 +360,12 @@ impl Tdb {
         }
     }
 
+    /// Iterate over all keys in the database.
     pub fn keys(&self) -> impl Iterator<Item = Vec<u8>> + '_ {
         TdbKeys(self, None)
     }
 
+    /// Iterate over all key/value pairs in the database.
     pub fn iter(&self) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + '_ {
         TdbIter(self, TdbKeys(self, None))
     }
@@ -361,8 +375,9 @@ impl Tdb {
         unsafe { tdb_exists(self.0, key.into()) }
     }
 
+    /// Lock the database
     pub fn lockall(&self) -> Result<(), Error> {
-        let ret = unsafe { tdb_lockall(self.0) };
+        let ret = unsafe { generated::tdb_lockall(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -370,8 +385,9 @@ impl Tdb {
         }
     }
 
+    /// Unlock the database
     pub fn unlockall(&self) -> Result<(), Error> {
-        let ret = unsafe { tdb_unlockall(self.0) };
+        let ret = unsafe { generated::tdb_unlockall(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -380,7 +396,7 @@ impl Tdb {
     }
 
     pub fn lockall_nonblock(&self) -> Result<(), Error> {
-        let ret = unsafe { tdb_lockall_nonblock(self.0) };
+        let ret = unsafe { generated::tdb_lockall_nonblock(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -389,7 +405,7 @@ impl Tdb {
     }
 
     pub fn lockall_read(&self) -> Result<(), Error> {
-        let ret = unsafe { tdb_lockall_read(self.0) };
+        let ret = unsafe { generated::tdb_lockall_read(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -398,7 +414,7 @@ impl Tdb {
     }
 
     pub fn lockall_read_nonblock(&self) -> Result<(), Error> {
-        let ret = unsafe { tdb_lockall_read_nonblock(self.0) };
+        let ret = unsafe { generated::tdb_lockall_read_nonblock(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -406,46 +422,56 @@ impl Tdb {
         }
     }
 
+    /// Return the name of the database
     pub fn name(&self) -> &str {
-        unsafe { CStr::from_ptr(tdb_name(self.0)) }
+        unsafe { CStr::from_ptr(generated::tdb_name(self.0)) }
             .to_str()
             .unwrap()
     }
 
+    /// Return the hash size used by the database
     pub fn hash_size(&self) -> u32 {
-        unsafe { tdb_hash_size(self.0) as u32 }
+        unsafe { generated::tdb_hash_size(self.0) as u32 }
     }
 
+    /// Return the map size used by the database
     pub fn map_size(&self) -> u32 {
-        unsafe { tdb_map_size(self.0) as u32 }
+        unsafe { generated::tdb_map_size(self.0) as u32 }
     }
 
+    /// Return the current sequence number
     pub fn get_seqnum(&self) -> u64 {
-        unsafe { tdb_get_seqnum(self.0) as u64 }
+        unsafe { generated::tdb_get_seqnum(self.0) as u64 }
     }
 
-    pub fn get_flags(&self) -> u32 {
-        unsafe { tdb_get_flags(self.0) as u32 }
+    /// Return the current flags
+    pub fn get_flags(&self) -> Flags {
+        Flags::from_bits_truncate(unsafe { generated::tdb_get_flags(self.0) as u32 })
     }
 
-    pub fn add_flags(&mut self, flags: u32) {
-        unsafe { tdb_add_flags(self.0, flags) };
+    /// Add a flag
+    pub fn add_flags(&mut self, flags: Flags) {
+        unsafe { generated::tdb_add_flags(self.0, flags.bits()) };
     }
 
-    pub fn remove_flags(&mut self, flags: u32) {
-        unsafe { tdb_remove_flags(self.0, flags) };
+    /// Remove a flag
+    pub fn remove_flags(&mut self, flags: Flags) {
+        unsafe { generated::tdb_remove_flags(self.0, flags.bits()) };
     }
 
+    /// Enable sequence numbers
     pub fn enable_seqnum(&mut self) {
-        unsafe { tdb_enable_seqnum(self.0) };
+        unsafe { generated::tdb_enable_seqnum(self.0) };
     }
 
+    /// Increment the sequence number
     pub fn increment_seqnum_nonblock(&mut self) {
-        unsafe { tdb_increment_seqnum_nonblock(self.0) };
+        unsafe { generated::tdb_increment_seqnum_nonblock(self.0) };
     }
 
+    /// Repack the database
     pub fn repack(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_repack(self.0) };
+        let ret = unsafe { generated::tdb_repack(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -453,8 +479,9 @@ impl Tdb {
         }
     }
 
+    /// Wipe the database
     pub fn wipe_all(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_wipe_all(self.0) };
+        let ret = unsafe { generated::tdb_wipe_all(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -462,17 +489,20 @@ impl Tdb {
         }
     }
 
+    /// Return a string summarizing the database
     pub fn summary(&self) -> String {
-        let buf = unsafe { tdb_summary(self.0) };
+        let buf = unsafe { generated::tdb_summary(self.0) };
         unsafe { CStr::from_ptr(buf) }.to_str().unwrap().to_owned()
     }
 
+    /// Return the freelist size
     pub fn freelist_size(&self) -> u32 {
-        unsafe { tdb_freelist_size(self.0) as u32 }
+        unsafe { generated::tdb_freelist_size(self.0) as u32 }
     }
 
+    /// Start a new transaction
     pub fn transaction_start(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_transaction_start(self.0) };
+        let ret = unsafe { generated::tdb_transaction_start(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -480,12 +510,14 @@ impl Tdb {
         }
     }
 
+    /// Check if a transaction is active
     pub fn transaction_active(&self) -> bool {
-        unsafe { tdb_transaction_active(self.0) }
+        unsafe { generated::tdb_transaction_active(self.0) }
     }
 
+    /// Start a new transaction, non-blocking
     pub fn transaction_start_nonblock(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_transaction_start_nonblock(self.0) };
+        let ret = unsafe { generated::tdb_transaction_start_nonblock(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -493,8 +525,9 @@ impl Tdb {
         }
     }
 
+    /// Prepare to commit a transaction
     pub fn transaction_prepare_commit(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_transaction_prepare_commit(self.0) };
+        let ret = unsafe { generated::tdb_transaction_prepare_commit(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -502,8 +535,9 @@ impl Tdb {
         }
     }
 
+    /// Commit a transaction
     pub fn transaction_commit(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_transaction_commit(self.0) };
+        let ret = unsafe { generated::tdb_transaction_commit(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -511,8 +545,9 @@ impl Tdb {
         }
     }
 
+    /// Cancel a transaction
     pub fn transaction_cancel(&mut self) -> Result<(), Error> {
-        let ret = unsafe { tdb_transaction_cancel(self.0) };
+        let ret = unsafe { generated::tdb_transaction_cancel(self.0) };
         if ret == -1 {
             self.error()
         } else {
@@ -523,7 +558,7 @@ impl Tdb {
 
 impl AsRawFd for Tdb {
     fn as_raw_fd(&self) -> RawFd {
-        unsafe { tdb_fd(self.0) }
+        unsafe { generated::tdb_fd(self.0) }
     }
 }
 
@@ -536,7 +571,7 @@ impl<'a> Iterator for TdbKeys<'a> {
         let key = if let Some(prev_key) = self.1.take() {
             unsafe { tdb_nextkey(self.0 .0, prev_key.as_slice().into()) }
         } else {
-            unsafe { tdb_firstkey(self.0 .0) }
+            unsafe { generated::tdb_firstkey(self.0 .0) }
         };
         if key.dptr.is_null() {
             match self.0.error() {
@@ -565,13 +600,14 @@ impl<'a> Iterator for TdbIter<'a> {
 
 impl Drop for Tdb {
     fn drop(&mut self) {
-        unsafe { tdb_close(self.0) };
+        unsafe { generated::tdb_close(self.0) };
     }
 }
 
+/// Generate the jenkins hash of a key
 pub fn jenkins_hash(key: Vec<u8>) -> u32 {
     let mut key = key.into();
-    unsafe { tdb_jenkins_hash(&mut key) }
+    unsafe { generated::tdb_jenkins_hash(&mut key) }
 }
 
 #[cfg(test)]

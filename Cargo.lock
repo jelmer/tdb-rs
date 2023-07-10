@@ -307,17 +307,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tdb-rs"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "bitflags",
- "libc",
- "pkg-config",
- "tempfile",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -329,6 +318,17 @@ dependencies = [
  "redox_syscall",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "trivialdb"
+version = "0.1.1"
+dependencies = [
+ "bindgen",
+ "bitflags",
+ "libc",
+ "pkg-config",
+ "tempfile",
 ]
 
 [[package]]
