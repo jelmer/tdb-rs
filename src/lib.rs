@@ -627,7 +627,9 @@ mod test {
     #[test]
     fn test_simple() {
         let mut tdb = testtdb();
+        assert!(!tdb.exists(b"foo"));
         tdb.store(b"foo", b"bar", None).unwrap();
+        assert!(tdb.exists(b"foo"));
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
         tdb.delete(b"foo").unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap(), None);

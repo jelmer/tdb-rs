@@ -17,7 +17,7 @@ fn main() {
 
     // Generate bindings using bindgen
     let bindings = bindgen::Builder::default()
-        .header_contents("tdb.h", "typedef int mode_t;")
+        .header("sys/stat.h")
         .header(tdb_header.to_str().unwrap())
         .blocklist_type("TDB_DATA")
         .blocklist_function("tdb_store")
