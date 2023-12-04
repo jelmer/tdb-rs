@@ -21,18 +21,29 @@ use std::ffi::CStr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::io::{AsRawFd, RawFd};
 
+pub use libc::{O_CREAT, O_RDONLY, O_RDWR, O_TRUNC};
+
 pub struct Tdb(*mut generated::tdb_context);
 
 #[derive(Debug)]
 pub enum Error {
+    /// Database is corrupt
     Corrupt,
+    /// I/O error
     IO,
+    /// Locked
     Lock,
+    /// Out of memory
     OOM,
+    /// Entry Exists
     Exists,
+    /// No Lock
     NoLock,
+    /// Lock timeout expired
     LockTimeout,
+    /// Database is read-only
     ReadOnly,
+    /// Entry does not exist
     NoExist,
     Invalid,
     Nesting,
@@ -41,27 +52,36 @@ pub enum Error {
 
 bitflags! {
     pub struct Flags: u32 {
-        /// CLEAR_IF_FIRST - Clear database if we are the only one with it open
+        /// Clear database if we are the only one with it open
         const CLEAR_IF_FIRST = generated::TDB_CLEAR_IF_FIRST;
-        /// NOMMAP - Don't use mmap
+        /// Don't use a file, instead store the data in memory. The fuile name is ignored in this
+        /// case.
+        const INTERNAL = generated::TDB_INTERNAL;
+        /// Don't use mmap
         const NOMMAP = generated::TDB_NOMMAP;
-        /// NOLOCK - Don't do any locking
+        /// Don't do any locking
         const NOLOCK = generated::TDB_NOLOCK;
-        /// NOSYNC - Don't synchronise transactions to disk
+        /// Don't synchronise transactions to disk
         const NOSYNC = generated::TDB_SEQNUM;
-        /// SEQNUM - Maintain a sequence number
+        /// Maintain a sequence number
         const SEQNUM = generated::TDB_SEQNUM;
-        /// VOLATILE - activate the per-hashchain freelist, default 5.
+        /// activate the per-hashchain freelist, default 5.
         const VOLATILE = generated::TDB_VOLATILE;
-        /// ALLOW_NESTING - Allow transactions to nest.
+        /// Allow transactions to nest.
         const ALLOW_NESTING = generated::TDB_ALLOW_NESTING;
-        /// DISALLOW_NESTING - Disallow transactions to nest.
+        /// Disallow transactions to nest.
         const DISALLOW_NESTING = generated::TDB_DISALLOW_NESTING;
-        /// INCOMPATIBLE_HASH - Better hashing: can't be opened by tdb < 1.2.6.
+        /// Better hashing: can't be opened by tdb < 1.2.6.
         const INCOMPATIBLE_HASH = generated::TDB_INCOMPATIBLE_HASH;
-        /// MUTEX_LOCKING - Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
+        /// Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
         ///   Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
         const MUTEX_LOCKING = generated::TDB_MUTEX_LOCKING;
+    }
+}
+
+impl Default for Flags {
+    fn default() -> Self {
+        Flags::empty()
     }
 }
 
@@ -80,14 +100,14 @@ pub enum StoreFlags {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let msg = match self {
-            Error::Corrupt => "Corrupt",
-            Error::IO => "IO",
-            Error::Lock => "Lock",
+            Error::Corrupt => "Database is corrupt",
+            Error::IO => "I/O error",
+            Error::Lock => "Locked",
             Error::OOM => "OOM",
             Error::Exists => "Exists",
             Error::NoLock => "NoLock",
-            Error::LockTimeout => "LockTimeout",
-            Error::ReadOnly => "ReadOnly",
+            Error::LockTimeout => "Lock timeout expired",
+            Error::ReadOnly => "Database is read-only",
             Error::NoExist => "NoExist",
             Error::Invalid => "Invalid",
             Error::Nesting => "Nesting",
@@ -212,12 +232,15 @@ impl Tdb {
     /// * `hash_size` - The hash size is advisory, leave None for a default.
     /// * `tdb_flags` The flags to use to open the db:
     /// * `open_flags` Flags for the open(2) function.
-    pub fn open(
-        name: &std::path::Path,
+    /// * `mode` The mode to use for the open(2) function.
+    pub fn open<P: AsRef<std::path::Path>>(
+        name: P,
         hash_size: Option<u32>,
         tdb_flags: Flags,
         open_flags: i32,
+        mode: u32,
     ) -> Option<Tdb> {
+        let name = name.as_ref();
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
             generated::tdb_open(
@@ -225,7 +248,7 @@ impl Tdb {
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 open_flags,
-                0,
+                mode
             )
         };
         if ret.is_null() {
@@ -241,14 +264,15 @@ impl Tdb {
     ///
     /// * `hash_size` - The hash size is advisory, leave None for a default.
     /// * `tdb_flags` The flags to use to open the db:
-    pub fn memory(hash_size: Option<u32>, tdb_flags: Flags) -> Option<Tdb> {
+    pub fn memory(hash_size: Option<u32>, mut tdb_flags: Flags) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
+        tdb_flags.insert(Flags::INTERNAL);
         let ret = unsafe {
             generated::tdb_open(
                 b":memory:\0".as_ptr() as *const i8,
                 hash_size as i32,
                 tdb_flags.bits() as i32,
-                0,
+                O_RDWR | O_CREAT,
                 0,
             )
         };
@@ -620,8 +644,20 @@ mod test {
             None,
             super::Flags::empty(),
             libc::O_RDWR | libc::O_CREAT,
+            0o600,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn test_memory() {
+        let mut tdb = super::Tdb::memory(None, super::Flags::empty()).unwrap();
+        assert!(!tdb.exists(b"foo"));
+        tdb.store(b"foo", b"bar", None).unwrap();
+        assert!(tdb.exists(b"foo"));
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+        tdb.delete(b"foo").unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap(), None);
     }
 
     #[test]
