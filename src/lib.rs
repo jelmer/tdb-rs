@@ -244,7 +244,7 @@ impl Tdb {
         let hash_size = hash_size.unwrap_or(0);
         let ret = unsafe {
             generated::tdb_open(
-                name.as_os_str().as_bytes().as_ptr() as *const i8,
+                name.as_os_str().as_bytes().as_ptr() as *const std::os::raw::c_char,
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 open_flags,
@@ -269,7 +269,7 @@ impl Tdb {
         tdb_flags.insert(Flags::INTERNAL);
         let ret = unsafe {
             generated::tdb_open(
-                b":memory:\0".as_ptr() as *const i8,
+                b":memory:\0".as_ptr() as *const std::os::raw::c_char,
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 O_RDWR | O_CREAT,
