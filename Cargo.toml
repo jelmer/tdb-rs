@@ -10,12 +10,12 @@ description = "Rust bindings for the TDB database library"
 
 [dependencies]
 libc = "0.2"
-bitflags = "2.6"
+bitflags = "2"
 
 [build-dependencies]
 pkg-config = "0.3"
 bindgen = ">=0.65"
-system-deps = "7.0.1"
+system-deps = ">=6"
 
 [dev-dependencies]
 tempfile = "3"
