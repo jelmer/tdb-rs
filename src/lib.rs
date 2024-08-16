@@ -346,6 +346,8 @@ impl Tdb {
                 Ok(_) => panic!("error but no error?"),
             }
         } else {
+            // TODO(jelmer): Call Vec::from_raw_parts_in here once the allocator API is stable.
+            // https://github.com/rust-lang/rust/issues/32838
             Ok(Some(ret.into()))
         }
     }
