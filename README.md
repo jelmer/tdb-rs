@@ -14,3 +14,4 @@ let mut tdb = Tdb::memory(None, Flags::empty()).unwrap();
 
 tdb.store(b"key", b"value", None).unwrap();
 assert_eq!(Some(b"value".to_vec()), tdb.fetch(b"key").unwrap());
+```
