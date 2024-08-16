@@ -1,4 +1,20 @@
 //! Rust bindings for TDB (Trivial Database)
+//!
+//! TDB is a simple database that provides a key-value store. It is designed to be fast and
+//! reliable, and is used by Samba for storing data. It supports multiple readers and
+//! writers at the same time.
+//!
+//! This crate provides a safe, rustic wrapper around the TDB C API.
+//!
+//! # Example
+//!
+//! ```rust
+//! use trivialdb::{Flags,Tdb};
+//!
+//! let mut tdb = Tdb::memory(None, Flags::empty()).unwrap();
+//! tdb.store(b"foo", b"bar", None).unwrap();
+//! assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+//! ```
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -248,7 +264,7 @@ impl Tdb {
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 open_flags,
-                mode
+                mode,
             )
         };
         if ret.is_null() {
