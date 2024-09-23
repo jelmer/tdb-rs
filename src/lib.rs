@@ -1,3 +1,4 @@
+#![deny(missing_docs)]
 //! Rust bindings for TDB (Trivial Database)
 //!
 //! TDB is a simple database that provides a key-value store. It is designed to be fast and
@@ -39,8 +40,10 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 pub use libc::{O_CREAT, O_RDONLY, O_RDWR, O_TRUNC};
 
+/// A Trivial Database
 pub struct Tdb(*mut generated::tdb_context);
 
+/// Errors that can occur when interacting with a Trivial Database
 #[derive(Debug)]
 pub enum Error {
     /// Database is corrupt
@@ -61,37 +64,40 @@ pub enum Error {
     ReadOnly,
     /// Entry does not exist
     NoExist,
+    /// Invalid error
     Invalid,
+
+    /// Nesting while that was not allowed
     Nesting,
-    Unknown(u32),
 }
 
 bitflags! {
+    /// Flags for opening a database
     pub struct Flags: u32 {
         /// Clear database if we are the only one with it open
-        const CLEAR_IF_FIRST = generated::TDB_CLEAR_IF_FIRST;
+        const ClearIfFirst = generated::TDB_CLEAR_IF_FIRST;
         /// Don't use a file, instead store the data in memory. The fuile name is ignored in this
         /// case.
-        const INTERNAL = generated::TDB_INTERNAL;
+        const Internal = generated::TDB_INTERNAL;
         /// Don't use mmap
-        const NOMMAP = generated::TDB_NOMMAP;
+        const NoMmap = generated::TDB_NOMMAP;
         /// Don't do any locking
-        const NOLOCK = generated::TDB_NOLOCK;
+        const NoLock = generated::TDB_NOLOCK;
         /// Don't synchronise transactions to disk
-        const NOSYNC = generated::TDB_SEQNUM;
+        const NoSync = generated::TDB_SEQNUM;
         /// Maintain a sequence number
-        const SEQNUM = generated::TDB_SEQNUM;
+        const Seqnum = generated::TDB_SEQNUM;
         /// activate the per-hashchain freelist, default 5.
-        const VOLATILE = generated::TDB_VOLATILE;
+        const Volatile = generated::TDB_VOLATILE;
         /// Allow transactions to nest.
-        const ALLOW_NESTING = generated::TDB_ALLOW_NESTING;
+        const AllowNesting = generated::TDB_ALLOW_NESTING;
         /// Disallow transactions to nest.
-        const DISALLOW_NESTING = generated::TDB_DISALLOW_NESTING;
+        const DisallowNesting = generated::TDB_DISALLOW_NESTING;
         /// Better hashing: can't be opened by tdb < 1.2.6.
-        const INCOMPATIBLE_HASH = generated::TDB_INCOMPATIBLE_HASH;
+        const IncompatibleHash = generated::TDB_INCOMPATIBLE_HASH;
         /// Optimized locking using robust mutexes if supported, can't be opened by tdb < 1.3.0.
-        ///   Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
-        const MUTEX_LOCKING = generated::TDB_MUTEX_LOCKING;
+        /// Only valid in combination with TDB_CLEAR_IF_FIRST after checking tdb_runtime_check_for_robust_mutexes()
+        const MutexLocking = generated::TDB_MUTEX_LOCKING;
     }
 }
 
@@ -101,16 +107,17 @@ impl Default for Flags {
     }
 }
 
+/// Store option Flags
 #[repr(C)]
 pub enum StoreFlags {
     /// Don't overwrite an existing entry.
-    INSERT = generated::TDB_INSERT as isize,
+    Insert = generated::TDB_INSERT as isize,
 
     /// Don't create a new entry.
-    REPLACE = generated::TDB_REPLACE as isize,
+    Replace = generated::TDB_REPLACE as isize,
 
     /// Don't create an existing entry.
-    MODIFY = generated::TDB_MODIFY as isize,
+    Modify = generated::TDB_MODIFY as isize,
 }
 
 impl std::fmt::Display for Error {
@@ -127,7 +134,6 @@ impl std::fmt::Display for Error {
             Error::NoExist => "NoExist",
             Error::Invalid => "Invalid",
             Error::Nesting => "Nesting",
-            Error::Unknown(e) => return write!(f, "Unknown({})", e),
         };
         write!(f, "{}", msg)
     }
@@ -149,7 +155,7 @@ impl From<u32> for Error {
             generated::TDB_ERROR_TDB_ERR_NOEXIST => Error::NoExist,
             generated::TDB_ERROR_TDB_ERR_EINVAL => Error::Invalid,
             generated::TDB_ERROR_TDB_ERR_NESTING => Error::Nesting,
-            _ => Error::Unknown(e),
+            _ => panic!("Unknown error code: {}", e),
         }
     }
 }
@@ -202,7 +208,7 @@ impl From<TDB_DATA> for Vec<u8> {
 }
 
 #[repr(C)]
-pub struct CONST_TDB_DATA {
+struct CONST_TDB_DATA {
     pub dptr: *const std::os::raw::c_uchar,
     pub dsize: usize,
 }
@@ -282,7 +288,7 @@ impl Tdb {
     /// * `tdb_flags` The flags to use to open the db:
     pub fn memory(hash_size: Option<u32>, mut tdb_flags: Flags) -> Option<Tdb> {
         let hash_size = hash_size.unwrap_or(0);
-        tdb_flags.insert(Flags::INTERNAL);
+        tdb_flags.insert(Flags::Internal);
         let ret = unsafe {
             generated::tdb_open(
                 b":memory:\0".as_ptr() as *const std::os::raw::c_char,
@@ -437,6 +443,7 @@ impl Tdb {
         }
     }
 
+    /// Lock the database, non-blocking
     pub fn lockall_nonblock(&self) -> Result<(), Error> {
         let ret = unsafe { generated::tdb_lockall_nonblock(self.0) };
         if ret == -1 {
@@ -446,6 +453,7 @@ impl Tdb {
         }
     }
 
+    /// Lock the database for reading
     pub fn lockall_read(&self) -> Result<(), Error> {
         let ret = unsafe { generated::tdb_lockall_read(self.0) };
         if ret == -1 {
@@ -455,6 +463,7 @@ impl Tdb {
         }
     }
 
+    /// Lock the database for reading, non-blocking
     pub fn lockall_read_nonblock(&self) -> Result<(), Error> {
         let ret = unsafe { generated::tdb_lockall_read_nonblock(self.0) };
         if ret == -1 {
