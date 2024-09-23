@@ -18,5 +18,11 @@ jobs:
       run: sudo apt install -y libtdb-dev
     - name: Build
       run: cargo build --verbose
+      env:
+        RUSTFLAGS: -Dwarnings
     - name: Run tests
       run: cargo test --verbose
+      env:
+        RUSTFLAGS: -Dwarnings
+    - name: Check formatting
+      run: cargo fmt -- --check
