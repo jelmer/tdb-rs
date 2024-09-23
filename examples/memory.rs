@@ -1,4 +1,4 @@
-use trivialdb::{Tdb,Flags};
+use trivialdb::{Flags, Tdb};
 
 fn main() {
     let mut tdb = Tdb::memory(None, Flags::default()).unwrap();
