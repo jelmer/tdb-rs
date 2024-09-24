@@ -260,7 +260,7 @@ impl Tdb {
         hash_size: Option<u32>,
         tdb_flags: Flags,
         open_flags: i32,
-        mode: u32,
+        mode: generated::mode_t,
     ) -> Option<Tdb> {
         let name = name.as_ref();
         let hash_size = hash_size.unwrap_or(0);
