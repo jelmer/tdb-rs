@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-//! Rust bindings for TDB (Trivial Database)
+//! Rust bindings for [TDB (Trivial Database)](https://tdb.samba.org/).
 //!
 //! TDB is a simple database that provides a key-value store. It is designed to be fast and
 //! reliable, and is used by Samba for storing data. It supports multiple readers and
