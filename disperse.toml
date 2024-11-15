@@ -1,0 +1,7 @@
+tag-name = "v$VERSION"
+release-timeout = 5
+ci-timeout = 7200
+
+[[update_version]]
+path = "Cargo.toml"
+new-line = 'version = "$VERSION"'
