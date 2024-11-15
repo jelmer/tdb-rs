@@ -5,7 +5,7 @@
 //! reliable, and is used by Samba for storing data. It supports multiple readers and
 //! writers at the same time.
 //!
-//! This crate provides a safe, rustic wrapper around the TDB C API.
+//! This create provides a safe, rustic wrapper around the TDB C API.
 //!
 //! # Example
 //!

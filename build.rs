@@ -1,5 +1,5 @@
-extern crate bindgen;
-extern crate pkg_config;
+extern create bindgen;
+extern create pkg_config;
 
 fn main() {
     system_deps::Config::new().probe().unwrap();
