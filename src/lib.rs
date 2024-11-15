@@ -333,7 +333,7 @@ impl Tdb {
         }
     }
 
-    /// Fetch a value from the database.:w
+    /// Fetch a value from the database.
     ///
     /// # Arguments
     /// * `key` - The key to fetch.
