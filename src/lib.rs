@@ -551,6 +551,10 @@ impl Tdb {
         unsafe { generated::tdb_freelist_size(self.0) as u32 }
     }
 
+    pub fn transaction(&mut self) -> Result<Transaction, Error> {
+        Transaction::new(self)
+    }
+
     /// Start a new transaction
     pub fn transaction_start(&mut self) -> Result<(), Error> {
         let ret = unsafe { generated::tdb_transaction_start(self.0) };
@@ -603,6 +607,70 @@ impl Tdb {
             self.error()
         } else {
             Ok(())
+        }
+    }
+}
+
+pub struct Transaction<'a>(&'a mut Tdb, bool);
+
+impl<'a> Transaction<'a> {
+    fn new(tdb: &'a mut Tdb) -> Result<Transaction, Error> {
+        tdb.transaction_start()?;
+        Ok(Self(tdb, false))
+    }
+
+    pub fn commit(mut self) -> Result<(), Error> {
+        self.1 = true;
+        self.0.transaction_commit()
+    }
+
+    pub fn cancel(mut self) -> Result<(), Error> {
+        self.1 = true;
+        self.0.transaction_cancel()
+    }
+
+    pub fn prepare_commit(&mut self) -> Result<(), Error> {
+        self.0.transaction_prepare_commit()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + '_ {
+        self.0.iter()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = Vec<u8>> + '_ {
+        self.0.keys()
+    }
+
+    pub fn store(
+        &mut self,
+        key: &[u8],
+        val: &[u8],
+        flags: Option<StoreFlags>,
+    ) -> Result<(), Error> {
+        self.0.store(key, val, flags)
+    }
+
+    pub fn fetch(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        self.0.fetch(key)
+    }
+
+    pub fn exists(&self, key: &[u8]) -> bool {
+        self.0.exists(key)
+    }
+
+    pub fn delete(&mut self, key: &[u8]) -> Result<(), Error> {
+        self.0.delete(key)
+    }
+
+    pub fn append(&mut self, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.0.append(key, val)
+    }
+}
+
+impl Drop for Transaction<'_> {
+    fn drop(&mut self) {
+        if !self.1 {
+            self.0.transaction_cancel().unwrap();
         }
     }
 }
@@ -752,5 +820,25 @@ mod test {
         tdb.store(b"foo", b"bar", None).unwrap();
         tdb.store(b"foo", b"blah", None).unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"blah");
+    }
+
+    #[test]
+    fn test_transaction_abort() {
+        let mut tdb = testtdb();
+        let mut transaction = tdb.transaction().unwrap();
+        transaction.store(b"foo", b"bar", None).unwrap();
+        assert_eq!(transaction.fetch(b"foo").unwrap(), Some(b"bar".to_vec()));
+        drop(transaction);
+        assert_eq!(tdb.fetch(b"foo").unwrap(), None);
+    }
+
+    #[test]
+    fn test_transaction_commit() {
+        let mut tdb = testtdb();
+        let mut transaction = tdb.transaction().unwrap();
+        transaction.store(b"foo", b"bar", None).unwrap();
+        assert_eq!(transaction.fetch(b"foo").unwrap().unwrap(), b"bar");
+        transaction.commit().unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
     }
 }
