@@ -32,6 +32,7 @@ fn main() {
                 .iter()
                 .map(|path| format!("-I{}", path.display())),
         )
+        .generate_inline_functions(true)
         .generate()
         .expect("Failed to generate bindings");
 

@@ -40,7 +40,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 pub use libc::{O_CREAT, O_RDONLY, O_RDWR, O_TRUNC};
 
-/// A Trivial Database
+/// A handle to a TDB database.
 pub struct Tdb(*mut generated::tdb_context);
 
 /// Errors that can occur when interacting with a Trivial Database
@@ -122,20 +122,19 @@ pub enum StoreFlags {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let msg = match self {
-            Error::Corrupt => "Database is corrupt",
-            Error::IO => "I/O error",
-            Error::Lock => "Locked",
-            Error::OOM => "OOM",
-            Error::Exists => "Exists",
-            Error::NoLock => "NoLock",
-            Error::LockTimeout => "Lock timeout expired",
-            Error::ReadOnly => "Database is read-only",
-            Error::NoExist => "NoExist",
-            Error::Invalid => "Invalid",
-            Error::Nesting => "Nesting",
-        };
-        write!(f, "{}", msg)
+        match self {
+            Error::Corrupt => f.write_str("Database is corrupt"),
+            Error::IO => f.write_str("I/O error"),
+            Error::Lock => f.write_str("Locked"),
+            Error::OOM => f.write_str("OOM"),
+            Error::Exists => f.write_str("Exists"),
+            Error::NoLock => f.write_str("NoLock"),
+            Error::LockTimeout => f.write_str("Lock timeout expired"),
+            Error::ReadOnly => f.write_str("Database is read-only"),
+            Error::NoExist => f.write_str("NoExist"),
+            Error::Invalid => f.write_str("Invalid"),
+            Error::Nesting => f.write_str("Nesting"),
+        }
     }
 }
 
@@ -167,10 +166,13 @@ impl From<i32> for Error {
 }
 
 impl From<Vec<u8>> for TDB_DATA {
-    fn from(data: Vec<u8>) -> Self {
-        let ptr = data.as_ptr() as *mut std::os::raw::c_uchar;
+    fn from(mut data: Vec<u8>) -> Self {
+        let ptr = data.as_mut_ptr() as *mut std::os::raw::c_uchar;
         let len = data.len();
+        let cap = data.capacity();
         std::mem::forget(data);
+        // Ensure we're using the exact allocated memory
+        debug_assert_eq!(len, cap, "Vector should be at exact capacity");
         TDB_DATA {
             dptr: ptr,
             dsize: len,
@@ -180,16 +182,27 @@ impl From<Vec<u8>> for TDB_DATA {
 
 impl Drop for TDB_DATA {
     fn drop(&mut self) {
-        unsafe {
-            libc::free(self.dptr as *mut libc::c_void);
+        if !self.dptr.is_null() {
+            unsafe {
+                libc::free(self.dptr as *mut libc::c_void);
+            }
         }
     }
 }
 
 impl Clone for TDB_DATA {
     fn clone(&self) -> Self {
+        if self.dsize == 0 || self.dptr.is_null() {
+            return TDB_DATA {
+                dptr: std::ptr::null_mut(),
+                dsize: 0,
+            };
+        }
         unsafe {
             let ptr = libc::malloc(self.dsize) as *mut std::os::raw::c_uchar;
+            if ptr.is_null() {
+                panic!("Failed to allocate memory for TDB_DATA clone");
+            }
             std::ptr::copy_nonoverlapping(self.dptr, ptr, self.dsize);
             TDB_DATA {
                 dptr: ptr,
@@ -264,9 +277,11 @@ impl Tdb {
     ) -> Option<Tdb> {
         let name = name.as_ref();
         let hash_size = hash_size.unwrap_or(0);
+        // Ensure null termination for C API
+        let c_name = std::ffi::CString::new(name.as_os_str().as_bytes()).ok()?;
         let ret = unsafe {
             generated::tdb_open(
-                name.as_os_str().as_bytes().as_ptr() as *const std::os::raw::c_char,
+                c_name.as_ptr(),
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 open_flags,
@@ -291,7 +306,7 @@ impl Tdb {
         tdb_flags.insert(Flags::Internal);
         let ret = unsafe {
             generated::tdb_open(
-                b":memory:\0".as_ptr() as *const std::os::raw::c_char,
+                c":memory:".as_ptr(),
                 hash_size as i32,
                 tdb_flags.bits() as i32,
                 O_RDWR | O_CREAT,
@@ -307,6 +322,7 @@ impl Tdb {
 
     /// Return the latest error that occurred
     fn error(&self) -> Result<(), Error> {
+        // Safety: self.0 is guaranteed to be a valid pointer for the lifetime of self
         let err = unsafe { generated::tdb_error(self.0) };
         if err == 0 {
             Ok(())
@@ -613,39 +629,57 @@ impl AsRawFd for Tdb {
     }
 }
 
-struct TdbKeys<'a>(&'a Tdb, Option<Vec<u8>>);
+struct TdbKeys<'a>(&'a Tdb, Option<TDB_DATA>);
 
-impl<'a> Iterator for TdbKeys<'a> {
+impl Iterator for TdbKeys<'_> {
     type Item = Vec<u8>;
 
     fn next(&mut self) -> Option<Vec<u8>> {
         let key = if let Some(prev_key) = self.1.take() {
-            unsafe { tdb_nextkey(self.0 .0, prev_key.as_slice().into()) }
+            // Convert TDB_DATA to CONST_TDB_DATA for the call
+            let const_key = CONST_TDB_DATA {
+                dptr: prev_key.dptr as *const _,
+                dsize: prev_key.dsize,
+            };
+            let result = unsafe { tdb_nextkey(self.0 .0, const_key) };
+            // Clean up the previous key
+            drop(prev_key);
+            result
         } else {
             unsafe { generated::tdb_firstkey(self.0 .0) }
         };
         if key.dptr.is_null() {
             match self.0.error() {
                 Err(Error::NoExist) | Ok(_) => None,
-                Err(e) => panic!("error: {}", e),
+                Err(e) => panic!("TDB iterator error: {}", e),
             }
         } else {
-            let ret: Vec<u8> = key.into();
-            self.1 = Some(ret.clone());
-            Some(ret)
+            // Store the key for the next iteration
+            self.1 = Some(key.clone());
+            // Return the key as Vec<u8>
+            Some(key.into())
         }
     }
 }
 
 struct TdbIter<'a>(&'a Tdb, TdbKeys<'a>);
 
-impl<'a> Iterator for TdbIter<'a> {
+impl Iterator for TdbIter<'_> {
     type Item = (Vec<u8>, Vec<u8>);
 
     fn next(&mut self) -> Option<(Vec<u8>, Vec<u8>)> {
         let key = self.1.next()?;
-        let val = self.0.fetch(key.as_slice()).unwrap().unwrap();
-        Some((key, val))
+        match self.0.fetch(&key) {
+            Ok(Some(val)) => Some((key, val)),
+            Ok(None) => {
+                // Key exists in iterator but not in fetch - skip it
+                self.next()
+            }
+            Err(_) => {
+                // Error fetching value - skip this entry
+                self.next()
+            }
+        }
     }
 }
 
@@ -656,9 +690,9 @@ impl Drop for Tdb {
 }
 
 /// Generate the jenkins hash of a key
-pub fn jenkins_hash(key: Vec<u8>) -> u32 {
-    let mut key = key.into();
-    unsafe { generated::tdb_jenkins_hash(&mut key) }
+pub fn jenkins_hash(key: &[u8]) -> u32 {
+    let mut tdb_key = CONST_TDB_DATA::from(key);
+    unsafe { generated::tdb_jenkins_hash(&mut tdb_key as *mut _ as *mut TDB_DATA) }
 }
 
 #[cfg(test)]
