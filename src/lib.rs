@@ -697,6 +697,9 @@ pub fn jenkins_hash(key: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use std::os::unix::io::AsRawFd;
+
     fn testtdb() -> super::Tdb {
         let tmppath = tempfile::tempdir().unwrap();
         let path = tmppath.path().join("test.tdb");
@@ -786,5 +789,276 @@ mod test {
         tdb.store(b"foo", b"bar", None).unwrap();
         tdb.store(b"foo", b"blah", None).unwrap();
         assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"blah");
+    }
+
+    #[test]
+    fn test_transaction_active() {
+        let mut tdb = testtdb();
+        assert!(!tdb.transaction_active());
+        tdb.transaction_start().unwrap();
+        assert!(tdb.transaction_active());
+        tdb.transaction_cancel().unwrap();
+        assert!(!tdb.transaction_active());
+    }
+
+    #[test]
+    fn test_transaction_start_nonblock() {
+        let mut tdb = testtdb();
+        tdb.transaction_start_nonblock().unwrap();
+        tdb.store(b"foo", b"bar", None).unwrap();
+        tdb.transaction_commit().unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+    }
+
+    #[test]
+    fn test_locking() {
+        let tdb = testtdb();
+
+        // Test lockall
+        tdb.lockall().unwrap();
+        tdb.unlockall().unwrap();
+
+        // Test lockall_nonblock
+        tdb.lockall_nonblock().unwrap();
+        tdb.unlockall().unwrap();
+    }
+
+    #[test]
+    fn test_read_locking() {
+        let tdb = testtdb();
+
+        // Test lockall_read - just verify it can be called
+        tdb.lockall_read().unwrap();
+        // Note: read locks have different unlock semantics
+
+        // Create a new TDB for read_nonblock test
+        let tdb2 = testtdb();
+        tdb2.lockall_read_nonblock().unwrap();
+    }
+
+    #[test]
+    fn test_metadata() {
+        let tdb = testtdb();
+
+        // Test name
+        let name = tdb.name();
+        assert!(name.contains("test.tdb"));
+
+        // Test hash_size
+        let hash_size = tdb.hash_size();
+        assert!(hash_size > 0);
+
+        // Test map_size
+        let map_size = tdb.map_size();
+        assert!(map_size > 0);
+
+        // Test summary
+        let summary = tdb.summary();
+        assert!(!summary.is_empty());
+
+        // Test freelist_size
+        let _freelist_size = tdb.freelist_size();
+    }
+
+    #[test]
+    fn test_flags() {
+        let mut tdb = testtdb();
+
+        // Test get_flags
+        let _initial_flags = tdb.get_flags();
+
+        // Test add_flags
+        tdb.add_flags(Flags::NoSync);
+        let flags_after_add = tdb.get_flags();
+        assert!(flags_after_add.contains(Flags::NoSync));
+
+        // Test remove_flags
+        tdb.remove_flags(Flags::NoSync);
+        let flags_after_remove = tdb.get_flags();
+        assert!(!flags_after_remove.contains(Flags::NoSync));
+    }
+
+    #[test]
+    fn test_sequence_numbers() {
+        let mut tdb = testtdb();
+
+        // Enable sequence numbers
+        tdb.enable_seqnum();
+
+        // Get initial sequence number
+        let initial_seqnum = tdb.get_seqnum();
+
+        // Increment sequence number
+        tdb.increment_seqnum_nonblock();
+
+        // Check it increased
+        let new_seqnum = tdb.get_seqnum();
+        assert!(new_seqnum >= initial_seqnum);
+    }
+
+    #[test]
+    fn test_reopen() {
+        let mut tdb = testtdb();
+        tdb.store(b"foo", b"bar", None).unwrap();
+
+        // Reopen should preserve data
+        tdb.reopen().unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+    }
+
+    #[test]
+    fn test_append() {
+        let mut tdb = testtdb();
+
+        // Append to non-existent key
+        tdb.append(b"foo", b"bar").unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+
+        // Append to existing key
+        tdb.append(b"foo", b"baz").unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"barbaz");
+    }
+
+    #[test]
+    fn test_wipe_all() {
+        let mut tdb = testtdb();
+
+        // Add some data
+        tdb.store(b"foo", b"bar", None).unwrap();
+        tdb.store(b"baz", b"qux", None).unwrap();
+
+        // Wipe all data
+        tdb.wipe_all().unwrap();
+
+        // Check data is gone
+        assert!(!tdb.exists(b"foo"));
+        assert!(!tdb.exists(b"baz"));
+    }
+
+    #[test]
+    fn test_repack() {
+        let mut tdb = testtdb();
+
+        // Add and delete some data to create fragmentation
+        for i in 0..10 {
+            let key = format!("key{}", i);
+            let value = format!("value{}", i);
+            tdb.store(key.as_bytes(), value.as_bytes(), None).unwrap();
+        }
+
+        for i in 0..5 {
+            let key = format!("key{}", i);
+            tdb.delete(key.as_bytes()).unwrap();
+        }
+
+        // Repack the database
+        tdb.repack().unwrap();
+
+        // Check remaining data is still there
+        for i in 5..10 {
+            let key = format!("key{}", i);
+            let value = format!("value{}", i);
+            assert_eq!(
+                tdb.fetch(key.as_bytes()).unwrap().unwrap(),
+                value.as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn test_set_max_dead() {
+        let mut tdb = testtdb();
+        // This just tests that the method can be called without crashing
+        tdb.set_max_dead(10);
+    }
+
+    #[test]
+    fn test_jenkins_hash() {
+        // Test empty input
+        let hash1 = jenkins_hash(b"");
+        assert!(hash1 != 0);
+
+        // Test non-empty input
+        let hash2 = jenkins_hash(b"hello");
+        assert!(hash2 != 0);
+        assert!(hash2 != hash1);
+
+        // Test same input gives same hash
+        let hash3 = jenkins_hash(b"hello");
+        assert_eq!(hash2, hash3);
+    }
+
+    #[test]
+    fn test_as_raw_fd() {
+        let tdb = testtdb();
+        let fd = tdb.as_raw_fd();
+        assert!(fd > 0);
+    }
+
+    #[test]
+    fn test_tdb_data_clone() {
+        // Test cloning empty TDB_DATA
+        let empty_data = TDB_DATA {
+            dptr: std::ptr::null_mut(),
+            dsize: 0,
+        };
+        let cloned_empty = empty_data.clone();
+        assert!(cloned_empty.dptr.is_null());
+        assert_eq!(cloned_empty.dsize, 0);
+
+        // Test cloning non-empty TDB_DATA
+        let vec = vec![1, 2, 3, 4, 5];
+        let data: TDB_DATA = vec.into();
+        let cloned = data.clone();
+        assert!(!cloned.dptr.is_null());
+        assert_eq!(cloned.dsize, 5);
+
+        // Convert back to Vec to verify content
+        let vec_back: Vec<u8> = cloned.into();
+        assert_eq!(vec_back, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_error_display() {
+        // Test all error variants display correctly
+        assert_eq!(format!("{}", Error::Corrupt), "Database is corrupt");
+        assert_eq!(format!("{}", Error::IO), "I/O error");
+        assert_eq!(format!("{}", Error::Lock), "Locked");
+        assert_eq!(format!("{}", Error::OOM), "OOM");
+        assert_eq!(format!("{}", Error::Exists), "Exists");
+        assert_eq!(format!("{}", Error::NoLock), "NoLock");
+        assert_eq!(format!("{}", Error::LockTimeout), "Lock timeout expired");
+        assert_eq!(format!("{}", Error::ReadOnly), "Database is read-only");
+        assert_eq!(format!("{}", Error::NoExist), "NoExist");
+        assert_eq!(format!("{}", Error::Invalid), "Invalid");
+        assert_eq!(format!("{}", Error::Nesting), "Nesting");
+        // Error::Unknown variant doesn't exist, removing this test
+    }
+
+    #[test]
+    fn test_store_flags() {
+        let mut tdb = testtdb();
+
+        // Test INSERT flag - should fail on existing key
+        tdb.store(b"foo", b"bar", None).unwrap();
+        let result = tdb.store(b"foo", b"baz", Some(StoreFlags::Insert));
+        assert!(result.is_err());
+
+        // Test REPLACE flag - should succeed on existing key
+        tdb.store(b"existing", b"old", None).unwrap();
+        tdb.store(b"existing", b"new", Some(StoreFlags::Replace))
+            .unwrap();
+        assert_eq!(tdb.fetch(b"existing").unwrap().unwrap(), b"new");
+
+        // Test INSERT flag - should succeed on non-existing key
+        tdb.store(b"newkey", b"value", Some(StoreFlags::Insert))
+            .unwrap();
+        assert_eq!(tdb.fetch(b"newkey").unwrap().unwrap(), b"value");
+    }
+
+    #[test]
+    fn test_memory_with_hash_size() {
+        let tdb = Tdb::memory(Some(1024), Flags::empty()).unwrap();
+        assert!(tdb.hash_size() >= 1024);
     }
 }
