@@ -1,6 +1,7 @@
+---
 name: Rust
 
-on:
+"on":
   push:
   pull_request:
 
@@ -17,20 +18,20 @@ jobs:
       fail-fast: false
 
     steps:
-    - uses: actions/checkout@v5
-    - name: Install tdb-dev
-      run: sudo apt install -y libtdb-dev
-      if: matrix.os == 'ubuntu-latest'
-    - name: Install tdb
-      run: brew install tdb
-      if: matrix.os == 'macos-latest'
-    - name: Build
-      run: cargo build --verbose
-      env:
-        RUSTFLAGS: -Dwarnings
-    - name: Run tests
-      run: cargo test --verbose
-      env:
-        RUSTFLAGS: -Dwarnings
-    - name: Check formatting
-      run: cargo fmt -- --check
+      - uses: actions/checkout@v5
+      - name: Install tdb-dev
+        run: sudo apt install -y libtdb-dev
+        if: matrix.os == 'ubuntu-latest'
+      - name: Install tdb
+        run: brew install tdb
+        if: matrix.os == 'macos-latest'
+      - name: Build
+        run: cargo build --verbose
+        env:
+          RUSTFLAGS: -Dwarnings
+      - name: Run tests
+        run: cargo test --verbose
+        env:
+          RUSTFLAGS: -Dwarnings
+      - name: Check formatting
+        run: cargo fmt -- --check
