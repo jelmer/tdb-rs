@@ -7,15 +7,103 @@
 //!
 //! This crate provides a safe, rustic wrapper around the TDB C API.
 //!
-//! # Example
+//! # Quick Start
+//!
+//! ```rust,no_run
+//! use trivialdb::{Flags,Tdb};
+//! use std::path::Path;
+//!
+//! // Open a file-based database
+//! let mut tdb = Tdb::open(
+//!     Path::new("/tmp/my.tdb"),
+//!     None,
+//!     Flags::empty(),
+//!     libc::O_RDWR | libc::O_CREAT,
+//!     0o600
+//! ).unwrap();
+//!
+//! tdb.store(b"foo", b"bar", None).unwrap();
+//! assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
+//! ```
+//!
+//! For testing or temporary data, you can also use in-memory databases:
 //!
 //! ```rust
 //! use trivialdb::{Flags,Tdb};
 //!
 //! let mut tdb = Tdb::memory(None, Flags::empty()).unwrap();
 //! tdb.store(b"foo", b"bar", None).unwrap();
-//! assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
 //! ```
+//!
+//! # Transactions
+//!
+//! TDB supports ACID transactions for atomic operations.
+//!
+//! **Note:** Transactions are only supported on file-based databases.
+//! The underlying TDB C library explicitly disallows transactions on memory databases
+//! (TDB_INTERNAL flag) since transaction recovery mechanisms are unnecessary for volatile storage.
+//!
+//! ```rust,no_run
+//! use trivialdb::{Flags,Tdb};
+//! use std::path::Path;
+//!
+//! let mut tdb = Tdb::open(
+//!     Path::new("/tmp/test.tdb"),
+//!     None,
+//!     Flags::empty(),
+//!     libc::O_RDWR | libc::O_CREAT,
+//!     0o600
+//! ).unwrap();
+//!
+//! // Start transaction
+//! tdb.transaction_start().unwrap();
+//! tdb.store(b"key1", b"value1", None).unwrap();
+//! tdb.store(b"key2", b"value2", None).unwrap();
+//!
+//! // Commit transaction
+//! tdb.transaction_commit().unwrap();
+//! ```
+//!
+//! # Iteration
+//!
+//! Iterate over all keys or key-value pairs:
+//!
+//! ```rust
+//! use trivialdb::{Flags,Tdb};
+//!
+//! let mut tdb = Tdb::memory(None, Flags::empty()).unwrap();
+//! tdb.store(b"foo", b"bar", None).unwrap();
+//! tdb.store(b"baz", b"qux", None).unwrap();
+//!
+//! // Iterate over keys
+//! for key in tdb.keys() {
+//!     println!("Key: {:?}", key);
+//! }
+//!
+//! // Iterate over key-value pairs
+//! for (key, value) in tdb.iter() {
+//!     println!("{:?} => {:?}", key, value);
+//! }
+//! ```
+//!
+//! # Thread Safety
+//!
+//! TDB databases are **not thread-safe** by default. The underlying C library uses
+//! file locking for inter-process synchronization, but does not provide thread-level
+//! locking within a single process.
+//!
+//! If you need to share a TDB database across threads:
+//! - Use `std::sync::Mutex` or `std::sync::RwLock` to protect access
+//! - Or use separate database handles per thread (if the underlying file supports it)
+//! - Consider using `Flags::NoLock` only if you can guarantee single-threaded access
+//!
+//! # Common Flag Combinations
+//!
+//! - **Basic file database**: `Flags::empty()`
+//! - **High-performance logging**: `Flags::NoSync` (data may be lost on crash)
+//! - **Single-process access**: `Flags::NoLock` (faster, but unsafe with multiple processes)
+//! - **Better hashing**: `Flags::IncompatibleHash` (not compatible with TDB < 1.2.6)
+//! - **Nested transactions**: `Flags::AllowNesting`
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]

@@ -20,6 +20,11 @@ system-deps = "7.0"
 
 [dev-dependencies]
 tempfile = "3"
+criterion = "0.5"
+
+[[bench]]
+name = "benchmarks"
+harness = false
 
 [package.metadata.system-deps]
 tdb = "1.0"
