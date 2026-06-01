@@ -788,17 +788,53 @@ mod test {
     use super::*;
     use std::os::unix::io::AsRawFd;
 
-    fn testtdb() -> super::Tdb {
-        let tmppath = tempfile::tempdir().unwrap();
-        let path = tmppath.path().join("test.tdb");
-        super::Tdb::open(
+    /// A test database that keeps its backing temporary directory alive for as
+    /// long as the database is in use.
+    ///
+    /// Returning a bare `Tdb` would drop the `TempDir` immediately, deleting the
+    /// backing file out from under the still-open database.
+    struct TestTdb {
+        tdb: super::Tdb,
+        _dir: tempfile::TempDir,
+    }
+
+    impl std::ops::Deref for TestTdb {
+        type Target = super::Tdb;
+
+        fn deref(&self) -> &Self::Target {
+            &self.tdb
+        }
+    }
+
+    impl std::ops::DerefMut for TestTdb {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.tdb
+        }
+    }
+
+    fn testtdb() -> TestTdb {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.tdb");
+        let tdb = super::Tdb::open(
             path.as_path(),
             None,
             super::Flags::empty(),
             libc::O_RDWR | libc::O_CREAT,
             0o600,
         )
-        .unwrap()
+        .unwrap();
+        TestTdb { tdb, _dir: dir }
+    }
+
+    #[test]
+    fn test_testtdb_backing_file_persists() {
+        let tdb = testtdb();
+        let name = tdb.name().to_string();
+        assert!(
+            std::path::Path::new(&name).exists(),
+            "backing file should still exist while the database is open: {}",
+            name
+        );
     }
 
     #[test]
