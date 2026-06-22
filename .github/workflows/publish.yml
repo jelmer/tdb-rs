@@ -19,7 +19,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install tdb-dev
         run: sudo apt install -y libtdb-dev
       - name: Authenticate with crates.io
