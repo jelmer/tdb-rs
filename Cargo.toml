@@ -16,7 +16,7 @@ bitflags = "2"
 [build-dependencies]
 pkg-config = "0.3"
 bindgen = "0.72"
-system-deps = "8.0"
+system-deps = "9.0"
 
 [dev-dependencies]
 tempfile = "3"
