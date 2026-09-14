@@ -15,7 +15,7 @@ bitflags = "2"
 
 [build-dependencies]
 pkg-config = "0.3"
-bindgen = "0.72"
+bindgen = "0.73"
 system-deps = "9.0"
 
 [dev-dependencies]
