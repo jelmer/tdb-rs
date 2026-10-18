@@ -655,6 +655,14 @@ impl Tdb {
         unsafe { generated::tdb_freelist_size(self.0) as u32 }
     }
 
+    /// Start a transaction, returning a guard that rolls back on drop.
+    ///
+    /// The returned [`Transaction`] commits only when [`Transaction::commit`]
+    /// is called explicitly; otherwise it is cancelled when dropped.
+    pub fn transaction(&mut self) -> Result<Transaction<'_>, Error> {
+        Transaction::new(self)
+    }
+
     /// Start a new transaction
     pub fn transaction_start(&mut self) -> Result<(), Error> {
         let ret = unsafe { generated::tdb_transaction_start(self.0) };
@@ -707,6 +715,86 @@ impl Tdb {
             self.error()
         } else {
             Ok(())
+        }
+    }
+}
+
+/// An active TDB transaction.
+///
+/// Wraps a mutable borrow of the [`Tdb`] for the duration of a transaction.
+/// Operations performed through the transaction are committed atomically by
+/// [`commit`](Transaction::commit); if the guard is dropped without
+/// committing, the transaction is cancelled (rolled back).
+pub struct Transaction<'a>(&'a mut Tdb, bool);
+
+impl<'a> Transaction<'a> {
+    fn new(tdb: &'a mut Tdb) -> Result<Transaction<'a>, Error> {
+        tdb.transaction_start()?;
+        Ok(Self(tdb, false))
+    }
+
+    /// Commit the transaction, making all changes durable.
+    pub fn commit(mut self) -> Result<(), Error> {
+        self.1 = true;
+        self.0.transaction_commit()
+    }
+
+    /// Cancel the transaction, discarding all changes.
+    pub fn cancel(mut self) -> Result<(), Error> {
+        self.1 = true;
+        self.0.transaction_cancel()
+    }
+
+    /// Prepare the transaction for commit without committing it yet.
+    pub fn prepare_commit(&mut self) -> Result<(), Error> {
+        self.0.transaction_prepare_commit()
+    }
+
+    /// Iterate over all key/value pairs visible in the transaction.
+    pub fn iter(&self) -> impl Iterator<Item = (Vec<u8>, Vec<u8>)> + '_ {
+        self.0.iter()
+    }
+
+    /// Iterate over all keys visible in the transaction.
+    pub fn keys(&self) -> impl Iterator<Item = Vec<u8>> + '_ {
+        self.0.keys()
+    }
+
+    /// Store a key/value pair within the transaction.
+    pub fn store(
+        &mut self,
+        key: &[u8],
+        val: &[u8],
+        flags: Option<StoreFlags>,
+    ) -> Result<(), Error> {
+        self.0.store(key, val, flags)
+    }
+
+    /// Fetch the value for a key within the transaction.
+    pub fn fetch(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        self.0.fetch(key)
+    }
+
+    /// Return whether a key exists within the transaction.
+    pub fn exists(&self, key: &[u8]) -> bool {
+        self.0.exists(key)
+    }
+
+    /// Delete a key within the transaction.
+    pub fn delete(&mut self, key: &[u8]) -> Result<(), Error> {
+        self.0.delete(key)
+    }
+
+    /// Append a value to an existing key within the transaction.
+    pub fn append(&mut self, key: &[u8], val: &[u8]) -> Result<(), Error> {
+        self.0.append(key, val)
+    }
+}
+
+impl Drop for Transaction<'_> {
+    fn drop(&mut self) {
+        if !self.1 {
+            self.0.transaction_cancel().unwrap();
         }
     }
 }
@@ -1184,5 +1272,25 @@ mod test {
     fn test_memory_with_hash_size() {
         let tdb = Tdb::memory(Some(1024), Flags::empty()).unwrap();
         assert!(tdb.hash_size() >= 1024);
+    }
+
+    #[test]
+    fn test_transaction_abort() {
+        let mut tdb = testtdb();
+        let mut transaction = tdb.transaction().unwrap();
+        transaction.store(b"foo", b"bar", None).unwrap();
+        assert_eq!(transaction.fetch(b"foo").unwrap(), Some(b"bar".to_vec()));
+        drop(transaction);
+        assert_eq!(tdb.fetch(b"foo").unwrap(), None);
+    }
+
+    #[test]
+    fn test_transaction_commit() {
+        let mut tdb = testtdb();
+        let mut transaction = tdb.transaction().unwrap();
+        transaction.store(b"foo", b"bar", None).unwrap();
+        assert_eq!(transaction.fetch(b"foo").unwrap().unwrap(), b"bar");
+        transaction.commit().unwrap();
+        assert_eq!(tdb.fetch(b"foo").unwrap().unwrap(), b"bar");
     }
 }
